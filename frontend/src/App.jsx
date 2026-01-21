@@ -1,9 +1,3 @@
-/**
- * App.jsx
- * ────────
- * Componente principale dell'app
- */
-
 import { ChatWindow } from "./components/ChatWindow";
 import "./App.css";
 
