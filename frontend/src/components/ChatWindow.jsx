@@ -9,6 +9,17 @@ import { chatWithPDF, checkBackendHealth } from "../services/api";
 import { MessageBubble } from "./MessageBubble";
 
 export function ChatWindow() {
+    const [sessionId] = useState(() => {
+        if (localStorage.getItem('chatSession')) {
+            return localStorage.getItem('chatSession');
+        }
+        const newId = crypto.randomUUID();
+        localStorage.setItem('chatSession', newId);
+        return newId;
+    });
+
+
+
     const [messages, setMessages] = useState([
         {
             id: 0,

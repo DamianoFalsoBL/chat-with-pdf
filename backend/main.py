@@ -19,6 +19,19 @@ import google.generativeai as genai
 import chromadb
 from pathlib import Path
 from dotenv import load_dotenv
+from pydantic import BaseModel
+from typing import Optional
+
+# Global chat sessions (reset al riavvio server)
+chat_sessions = {}
+
+def get_chat_session(session_id: str):
+    """Restituisce ChatSession o ne crea una nuova"""
+    if session_id not in chat_sessions:
+        model = genai.GenerativeModel("models/gemini-2.5-pro")
+        chat_sessions[session_id] = model.start_chat()
+    return chat_sessions[session_id]
+
 
 # ────────────────────────────────────────
 # 1. SETUP FASTAPI & CORS
@@ -59,9 +72,10 @@ chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)  # nuovo modo [we
 # ────────────────────────────────────────
 
 class ChatRequest(BaseModel):
-    """Schema per richieste di chat"""
-    query: str  # Domanda dell'utente
-    context_count: int = 3  # Quanti chunks recuperare dal vector store
+    query: str
+    context_count: int = 3
+    session_id: Optional[str] = None
+
 
 class ChatResponse(BaseModel):
     """Schema per risposta del backend"""
@@ -90,21 +104,26 @@ def retrieve_context(query: str, top_k: int = 3) -> tuple:
         # Get collection
         collection = chroma_client.get_collection(name="pdf_knowledge_base")
         
-        # Crea embedding della query
+        # Embedding QUERY (non documento!)
         query_embedding = genai.embed_content(
             model="models/embedding-001",
             content=query,
-            task_type="RETRIEVAL_QUERY"  # Optimizzato per query
+            task_type="RETRIEVAL_QUERY"  # ← CORRETTO per query!
         )["embedding"]
         
         # Ricerca nei vettori simili
         results = collection.query(
             query_embeddings=[query_embedding],
-            n_results=top_k
+            n_results=min(top_k, collection.count())  # evita il warning e usa tutto quello che c'è
         )
         
         # Combina i chunks ritornati
-        context_text = "\n---\n".join(results["documents"][0])
+        context_parts = []
+        for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
+            source = meta.get("source", "sconosciuto")
+            context_parts.append(f"[PDF: {source}]\n{doc}\n")
+        context_text = "\n\n".join(context_parts)
+        
         sources = list(set(
             meta["source"] for meta in results["metadatas"][0]
         ))
@@ -148,44 +167,30 @@ def call_gemini_with_retry(model, prompt: str, max_retries: int = 3) -> str:
 
 
 def generate_response(query: str, context: str) -> str:
-    system_prompt = (
-        "Sei un assistente esperto. Rispondi SOLO in base al contesto. "
-        "Se non trovi la risposta nel contesto, dillo chiaramente."
-    )
+    """Prompt specifico RAG per Gemini 2.5 Pro"""
+    prompt = f"""Sei un assistente RAG esperto per documenti PDF.
 
-    prompt = f"""{system_prompt}
+ISTRUZIONI:
+1. Usa SOLO il contesto sotto. Non inventare.
+2. Cita sempre [PDF: nome.pdf] dopo ogni informazione.
+3. Se la risposta non è nel contesto, di' "Non trovo questa informazione nei documenti."
+4. Rispondi in italiano, chiaro e conciso.
+5. CITAZIONI: scrivi SEMPRE [PDF: nome_esatto] DOPO OGNI informazione, usando il nome preciso dal contesto.
 
-CONTESTO:
+CONTEXTO (fonti multiple):
 {context}
 
-DOMANDA:
-{query}
-"""
+DOMANDA: {query}
 
-    # Per demo: Flash spesso è più “snello” lato rate limits rispetto a Pro
-    model = genai.GenerativeModel("models/gemini-flash-latest")
+RISPOSTA:"""
 
-    try:
-        return call_gemini_with_retry(model, prompt, max_retries=3)
-    except Exception as e:
-        # Log utile in console (per capire se è quota, 500, ecc.)
-        print("Gemini generate_content error:", repr(e))
+    model = genai.GenerativeModel("models/gemini-2.5-pro")
+    return call_gemini_with_retry(model, prompt, max_retries=3)
 
-        # Risposta controllata al frontend invece di 500
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Gemini non disponibile in questo momento (possibile quota/rate limit o errore temporaneo). "
-                f"Dettaglio: {type(e).__name__}: {e}"
-            ),
-        )
+
 
     
-    # Chiama Gemini
-    model = genai.GenerativeModel("gemini-1.5-flash")
-    response = model.generate_content(user_message)
-    
-    return response.text
+
 
 # ────────────────────────────────────────
 # 6. ENDPOINTS FastAPI
@@ -210,12 +215,12 @@ async def chat(request: ChatRequest):
     3. Ritorna risposta + sources
     """
     
-    print(f"\n🔍 Query ricevuta: {request.query}")
+    print(f"\n🔍 Query ricevuta: {request.query} | Session: {request.session_id}")
     
     # Step 1: Retrieval
     context, sources = retrieve_context(
         query=request.query,
-        top_k=request.context_count
+        top_k = request.context_count
     )
     
     if not context:
@@ -224,16 +229,36 @@ async def chat(request: ChatRequest):
             sources=[]
         )
     
-    # Step 2: Generation
-    answer = generate_response(query=request.query, context=context)
+    # ← QUI CAMBIA: ChatSession invece di generate_response
+    chat = get_chat_session(request.session_id or "default")
     
-    print(f"📝 Risposta generata")
-    print(f"📚 Sources: {sources}\n")
+    rag_prompt = f"""CONTEXTO dai documenti:
+{context}
+
+DOMANDA: {request.query}"""
     
-    return ChatResponse(
-        answer=answer,
-        sources=sources
-    )
+    try:
+        response = chat.send_message(rag_prompt)
+        answer = response.text
+        
+        print(f"📝 Risposta generata")
+        print(f"📚 Sources: {sources}\n")
+        
+        return ChatResponse(
+            answer=answer,
+            sources=sources
+        )
+        
+    except Exception as e:
+        print("Gemini generate_content error:", repr(e))
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Gemini non disponibile in questo momento (possibile quota/rate limit o errore temporaneo). "
+                f"Dettaglio: {type(e).__name__}: {e}"
+            ),
+        )
+
 
 # ────────────────────────────────────────
 # 7. RUN SERVER (quando esegui il file)

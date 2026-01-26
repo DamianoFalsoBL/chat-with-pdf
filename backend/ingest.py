@@ -46,64 +46,45 @@ chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)  # [web:216]
 # 2. ESTRAZIONE TESTO DA PDF
 # ────────────────────────────────────────
 
+import fitz  # PyMuPDF
+
 def extract_text_from_pdf(pdf_path: str) -> str:
-    """
-    Legge un PDF e ritorna il testo estratto.
-    
-    Args:
-        pdf_path: percorso al file PDF
-        
-    Returns:
-        Stringa con il testo completo
-    """
-    print(f"📄 Estrarre testo da: {pdf_path}")
-    
-    reader = PdfReader(pdf_path)
+    doc = fitz.open(pdf_path)
     text = ""
-    
-    for page_num, page in enumerate(reader.pages):
+    for page_num in range(len(doc)):
+        page = doc.load_page(page_num)
         text += f"\n--- Pagina {page_num + 1} ---\n"
-        text += page.extract_text()
-    
-    print(f"✓ Estratte {len(reader.pages)} pagine")
+        text += page.get_text()
+    doc.close()
     return text
+
 
 # ────────────────────────────────────────
 # 3. CHUNKING DEL TESTO
 # ────────────────────────────────────────
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list:
+def chunk_text(text: str, chunk_size: int = 1200, overlap: int = 300) -> list:
     """
-    Divide il testo in chunks per embeddings.
-    
-    WHY?
-    - Gemini ha limite token per embedding (~3000)
-    - Chunks piccoli = ricerche semantiche più precise
-    - Overlap = non perdiamo contesto tra chunk
-    
-    Args:
-        text: testo completo
-        chunk_size: lunghezza target di ogni chunk (caratteri)
-        overlap: sovrapposizione tra chunks
-        
-    Returns:
-        Lista di chunks
+    Chunk size più grande + overlap per contesto migliore.
     """
     chunks = []
     start = 0
     
     while start < len(text):
-        # Prendi chunk_size caratteri
         end = start + chunk_size
         chunk = text[start:end]
         
+        # Taglia a frase/sentenza più vicina (migliora coerenza)
+        last_period = chunk.rfind('.')
+        if last_period > chunk_size * 0.8:
+            end = last_period + 1
+            
         chunks.append(chunk.strip())
-        
-        # Sposta start con overlap per continuità
         start += chunk_size - overlap
     
-    print(f"✂️ Testo diviso in {len(chunks)} chunks")
+    print(f"✂️ Testo diviso in {len(chunks)} chunks (size={chunk_size}, overlap={overlap})")
     return chunks
+
 
 # ────────────────────────────────────────
 # 4. CREAZIONE EMBEDDINGS (Gemini)
@@ -136,14 +117,9 @@ def get_embeddings(text: str) -> list:
 # ────────────────────────────────────────
 
 def ingest_pdfs_to_chromadb():
-    """
-    Pipeline completo: PDF → Chunks → Embeddings → ChromaDB
-    """
-    
-    # Crea collection in ChromaDB (tabella dove salvare i dati)
     collection = chroma_client.get_or_create_collection(
         name="pdf_knowledge_base",
-        metadata={"hnsw:space": "cosine"}  # Distanza coseno per somiglianza semantica
+        metadata={"hnsw:space": "cosine"}
     )
     
     pdf_files = list(Path(PDF_FOLDER).glob("*.pdf"))
@@ -160,19 +136,14 @@ def ingest_pdfs_to_chromadb():
         print(f"{'='*60}")
         
         try:
-            # Step 1: Estrai testo
             text = extract_text_from_pdf(str(pdf_file))
+            chunks = chunk_text(text, chunk_size=1200, overlap=300)
             
-            # Step 2: Dividi in chunks
-            chunks = chunk_text(text)
-            
-            # Step 3: Per ogni chunk, crea embedding e salva
             for idx, chunk in enumerate(chunks):
                 print(f"  Chunk {idx + 1}/{len(chunks)} → Embedding...", end=" ")
                 
                 embedding = get_embeddings(chunk)
                 
-                # Salva in ChromaDB
                 collection.add(
                     ids=[f"{pdf_file.stem}_chunk_{idx}"],
                     documents=[chunk],
@@ -189,6 +160,7 @@ def ingest_pdfs_to_chromadb():
     print("\n" + "="*60)
     print("✅ Ingestione completata!")
     print("="*60)
+
 
 # ────────────────────────────────────────
 # 6. ESECUZIONE

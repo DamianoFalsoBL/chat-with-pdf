@@ -4,12 +4,14 @@
  * Componente che renderizza un messaggio singolo (utente o assistant)
  */
 
+import ReactMarkdown from 'react-markdown';
+
 export function MessageBubble({ message, isUser }) {
     return (
         <div className={`message-bubble ${isUser ? "user" : "assistant"}`}>
             {/* Testo principale */}
             <div className="message-text">
-                {message.text}
+                <ReactMarkdown>{message.text}</ReactMarkdown>
             </div>
 
             {/* Sources (solo per risposte) */}

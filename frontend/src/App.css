@@ -11,15 +11,18 @@
 }
 
 :root {
-  --primary-color: #3b82f6;
-  --secondary-color: #1e293b;
+  --primary-color: #0B2341;
+  /* Feinar Navy Blue */
+  --accent-color: #E6C200;
+  /* Feinar Gold/Yellow */
+  --secondary-color: #334155;
   --success-color: #10b981;
   --error-color: #ef4444;
   --bg-light: #f8fafc;
-  --bg-dark: #1e293b;
-  --text-light: #0f172a;
+  --bg-dark: #0B2341;
+  --text-light: #333333;
   --text-dark: #f1f5f9;
-  --border-color: #cbd5e1;
+  --border-color: #e2e8f0;
 }
 
 body {
@@ -57,7 +60,7 @@ body {
 /* ════════════════════════════════════════ */
 
 .chat-header {
-  background: linear-gradient(135deg, var(--primary-color) 0%, #1e40af 100%);
+  background: var(--primary-color);
   color: white;
   padding: 20px 24px;
   display: flex;
@@ -173,6 +176,16 @@ body {
   word-wrap: break-word;
 }
 
+.message-text ul,
+.message-text ol {
+  margin: 8px 0;
+  padding-left: 32px;
+}
+
+.message-text li {
+  margin-bottom: 4px;
+}
+
 .message-sources {
   padding: 0 16px;
   color: #64748b;
@@ -266,8 +279,9 @@ body {
   width: 44px;
   height: 44px;
   border: none;
-  background: var(--primary-color);
-  color: white;
+  background: var(--accent-color);
+  color: var(--primary-color);
+  font-weight: 700;
   border-radius: 12px;
   cursor: pointer;
   font-size: 20px;
@@ -279,7 +293,8 @@ body {
 }
 
 .send-button:hover:not(:disabled) {
-  background: #2563eb;
+  background: #C7A700;
+  /* Darker Gold */
   transform: scale(1.05);
 }
 
