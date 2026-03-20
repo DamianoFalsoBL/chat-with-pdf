@@ -55,8 +55,17 @@ app.add_middleware(
 # ────────────────────────────────────────
 # 2. CONFIGURAZIONE GEMINI & CHROMADB
 # ────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent   # cartella backend/
-load_dotenv(BASE_DIR / ".env")              # carica backend/.env in modo esplicito [web:193]
+
+from pathlib import Path
+import os
+from dotenv import load_dotenv
+import chromadb
+import google.generativeai as genai
+
+BASE_DIR = Path(__file__).resolve().parent  # cartella backend/
+
+# carica backend/.env in modo esplicito
+load_dotenv(dotenv_path=BASE_DIR / ".env")  # accetta un path al file .env [web:756]
 
 API_KEY = os.getenv("GOOGLE_API_KEY")
 if not API_KEY:
@@ -64,8 +73,16 @@ if not API_KEY:
 
 genai.configure(api_key=API_KEY)
 
-CHROMA_DB_PATH = "./chroma_db"
-chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)  # nuovo modo [web:216]
+# Path fisso (assoluto) alla cartella di persistenza di Chroma
+CHROMA_DB_PATH = BASE_DIR / "chroma_db"
+CHROMA_DB_PATH.mkdir(exist_ok=True)
+
+# Client persistente (usa SEMPRE lo stesso path)
+chroma_client = chromadb.PersistentClient(path=str(CHROMA_DB_PATH))  # [web:735]
+
+# (opzionale) debug: verifica dove sta scrivendo/leggendo
+print("CHROMA_DB_PATH =", CHROMA_DB_PATH)
+
 
 # ────────────────────────────────────────
 # 3. MODELLI PYDANTIC (Validazione input)

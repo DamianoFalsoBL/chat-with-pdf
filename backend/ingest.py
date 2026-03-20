@@ -21,8 +21,16 @@ from dotenv import load_dotenv
 # 1. CONFIGURAZIONE INIZIALE
 # ────────────────────────────────────────
 
-BASE_DIR = Path(__file__).resolve().parent   # cartella backend/
-load_dotenv(BASE_DIR / ".env")              # carica backend/.env in modo esplicito [web:193]
+from pathlib import Path
+import os
+from dotenv import load_dotenv
+import chromadb
+import google.generativeai as genai
+
+BASE_DIR = Path(__file__).resolve().parent  # cartella backend/
+
+# Carica backend/.env in modo esplicito
+load_dotenv(dotenv_path=BASE_DIR / ".env")  # load_dotenv accetta anche un Path. [web:756][web:751]
 
 API_KEY = os.getenv("GOOGLE_API_KEY")
 if not API_KEY:
@@ -30,16 +38,21 @@ if not API_KEY:
 
 genai.configure(api_key=API_KEY)
 
-# Cartelle
-PDF_FOLDER = "./pdfs"  # Qui metti i tuoi PDF
-CHROMA_DB_PATH = "./chroma_db"
+# Cartelle (ASSOLUTE e stabili)
+PDF_FOLDER = BASE_DIR / "pdfs"
+CHROMA_DB_PATH = BASE_DIR / "chroma_db"
 
 # Crea cartelle se non esistono
-Path(PDF_FOLDER).mkdir(exist_ok=True)
-Path(CHROMA_DB_PATH).mkdir(exist_ok=True)
+PDF_FOLDER.mkdir(exist_ok=True)
+CHROMA_DB_PATH.mkdir(exist_ok=True)
 
-# Inizializza ChromaDB (persistente su disco) - nuovo client
-chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)  # [web:216]
+# Inizializza ChromaDB (persistente su disco) - client
+chroma_client = chromadb.PersistentClient(path=str(CHROMA_DB_PATH))  # directory locale di persistenza. [web:735]
+
+# (Opzionale ma utile) log per verificare
+print("PDF_FOLDER =", PDF_FOLDER)
+print("CHROMA_DB_PATH =", CHROMA_DB_PATH)
+
 
 
 # ────────────────────────────────────────
